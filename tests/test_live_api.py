@@ -8,11 +8,12 @@ import subprocess
 import tempfile
 import time
 import unittest
+from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 
 PNG_1X1 = base64.b64decode(
@@ -110,6 +111,19 @@ class LiveApiTestCase(unittest.TestCase):
                 return exc.code, json.loads(exc.read().decode("utf-8"))
 
     def test_complete_api_flow(self) -> None:
+        with urlopen(f"{self.base_url}/", timeout=5) as response:
+            html = response.read().decode("utf-8")
+            self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+            self.assertIn("/static/app.js?v=0.3.0", html)
+        with urlopen(
+            f"{self.base_url}/static/app.js?v=0.3.0",
+            timeout=5,
+        ) as response:
+            self.assertEqual(
+                response.headers.get("Cache-Control"),
+                "no-cache, max-age=0, must-revalidate",
+            )
+
         with urlopen(f"{self.base_url}/openapi.json", timeout=5) as response:
             openapi = json.loads(response.read().decode("utf-8"))
         validation_descriptions = {
@@ -178,6 +192,204 @@ class LiveApiTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(deleted["deleted"])
         self.assertEqual(list((self.data_dir / "photos").iterdir()), [])
+
+    def test_backup_admin_flow_and_double_confirmation(self) -> None:
+        status, denied = self.request("GET", "/api/v1/backups")
+        self.assertEqual(status, 401)
+        self.assertEqual(denied["error"]["code"], "web_session_required")
+
+        cookie_jar = CookieJar()
+        opener = build_opener(HTTPCookieProcessor(cookie_jar))
+
+        def web_request(
+            method: str,
+            path: str,
+            payload: dict[str, Any] | bytes | None = None,
+        ) -> tuple[int, dict[str, Any] | bytes]:
+            body = (
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if isinstance(payload, dict)
+                else payload
+            )
+            request = Request(
+                f"{self.base_url}{path}",
+                data=body,
+                method=method,
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                with opener.open(request, timeout=10) as response:
+                    content = response.read()
+                    if "application/json" in response.headers.get("content-type", ""):
+                        return response.status, json.loads(content.decode("utf-8"))
+                    return response.status, content
+            except HTTPError as exc:
+                with exc:
+                    return exc.code, json.loads(exc.read().decode("utf-8"))
+
+        status, _ = web_request(
+            "POST",
+            "/api/v1/web-auth/login",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        status, configured = web_request(
+            "PUT",
+            "/api/v1/backups/config",
+            {
+                "cloud_enabled": False,
+                "provider": "aliyun",
+                "endpoint_url": "",
+                "region": "",
+                "bucket": "",
+                "prefix": "easystufffind",
+                "access_key_id": "EXAMPLE_ACCESS_KEY",
+                "secret_access_key": "EXAMPLE_SECRET",
+                "clear_secret": False,
+                "frequency": "off",
+                "time": "03:00",
+                "weekday": 1,
+                "monthday": 1,
+                "retention_days": 30,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn("secret_access_key", configured["config"])
+        self.assertTrue(configured["config"]["secret_configured"])
+        self.assertEqual(
+            (self.data_dir / "backup-config.json").stat().st_mode & 0o777,
+            0o600,
+        )
+
+        status, created = web_request(
+            "POST",
+            "/api/v1/backups",
+            {"upload_cloud": False},
+        )
+        self.assertEqual(status, 201)
+        backup_id = created["backup"]["id"]
+        status, archive = web_request(
+            "GET",
+            f"/api/v1/backups/{backup_id}/download",
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(archive.startswith(b"PK"))
+
+        status, wrong = web_request(
+            "POST",
+            "/api/v1/backups/restore/authorize",
+            {"backup_id": backup_id, "password": "wrong"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(wrong["error"]["code"], "current_password_invalid")
+        status, authorized = web_request(
+            "POST",
+            "/api/v1/backups/restore/authorize",
+            {"backup_id": backup_id, "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        status, restored = web_request(
+            "POST",
+            "/api/v1/backups/restore/execute",
+            {"ticket": authorized["ticket"], "confirmation": "RESTORE"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(restored["restored"])
+
+    def test_web_login_cookie_and_password_change(self) -> None:
+        cookie_jar = CookieJar()
+        opener = build_opener(HTTPCookieProcessor(cookie_jar))
+
+        def web_request(
+            method: str,
+            path: str,
+            payload: dict[str, Any] | None = None,
+        ) -> tuple[int, dict[str, Any], Any]:
+            body = (
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if payload is not None
+                else None
+            )
+            request = Request(
+                f"{self.base_url}{path}",
+                data=body,
+                method=method,
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                with opener.open(request, timeout=5) as response:
+                    return (
+                        response.status,
+                        json.loads(response.read().decode("utf-8")),
+                        response.headers,
+                    )
+            except HTTPError as exc:
+                with exc:
+                    return (
+                        exc.code,
+                        json.loads(exc.read().decode("utf-8")),
+                        exc.headers,
+                    )
+
+        status, failed, _ = web_request(
+            "POST",
+            "/api/v1/web-auth/login",
+            {"username": "admin", "password": "wrong"},
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(failed["error"]["code"], "invalid_credentials")
+
+        status, logged_in, headers = web_request(
+            "POST",
+            "/api/v1/web-auth/login",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(logged_in["authenticated"])
+        self.assertEqual(logged_in["expires_in_seconds"], 30 * 24 * 60 * 60)
+        cookie_header = headers.get("Set-Cookie", "")
+        self.assertIn("HttpOnly", cookie_header)
+        self.assertIn("SameSite=strict", cookie_header)
+        self.assertIn("Max-Age=2592000", cookie_header)
+        self.assertEqual(headers.get("Cache-Control"), "no-store")
+
+        status, _, _ = web_request("GET", "/api/v1/items")
+        self.assertEqual(status, 200)
+        status, changed, _ = web_request(
+            "POST",
+            "/api/v1/web-auth/password",
+            {
+                "current_password": "admin",
+                "new_password": "new-admin-password",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(changed["user"]["password_changed"])
+
+        fresh_opener = build_opener(HTTPCookieProcessor(CookieJar()))
+        wrong_old_password = Request(
+            f"{self.base_url}/api/v1/web-auth/login",
+            data=json.dumps(
+                {"username": "admin", "password": "admin"}
+            ).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with self.assertRaises(HTTPError) as context:
+            fresh_opener.open(wrong_old_password, timeout=5)
+        with context.exception:
+            self.assertEqual(context.exception.code, 401)
+
+        new_password_login = Request(
+            f"{self.base_url}/api/v1/web-auth/login",
+            data=json.dumps(
+                {"username": "admin", "password": "new-admin-password"}
+            ).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with fresh_opener.open(new_password_login, timeout=5) as response:
+            self.assertEqual(response.status, 200)
 
     def test_three_query_states_and_ambiguous_upsert(self) -> None:
         item_ids = []

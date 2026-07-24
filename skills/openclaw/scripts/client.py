@@ -31,6 +31,8 @@ def send(
     path: str,
     body: bytes | None = None,
     content_type: str = "application/json",
+    *,
+    print_body: bool = True,
 ) -> int:
     base_url, token = connection()
     if not path.startswith("/api/v1/"):
@@ -47,7 +49,7 @@ def send(
     try:
         with urlopen(request, timeout=30) as response:
             payload = response.read()
-            if payload:
+            if payload and print_body:
                 print(payload.decode("utf-8"))
             return 0
     except HTTPError as exc:
@@ -59,6 +61,50 @@ def send(
     except URLError as exc:
         print(f"无法连接 EasyStuffFind：{exc.reason}", file=sys.stderr)
         return 1
+
+
+def verify_photo(item_id: int) -> int:
+    base_url, token = connection()
+    request = Request(
+        f"{base_url}/api/v1/items/{item_id}",
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        with exc:
+            body = exc.read()
+            if body:
+                print(body.decode("utf-8"), file=sys.stderr)
+        return 1
+    except URLError as exc:
+        print(f"无法连接 EasyStuffFind：{exc.reason}", file=sys.stderr)
+        return 1
+
+    item = payload.get("item") if isinstance(payload, dict) else None
+    if not isinstance(item, dict) or not item.get("photo") or not item.get("photo_url"):
+        print(f"照片尚未保存：item_id={item_id}", file=sys.stderr)
+        return 1
+    photo = item["photo"]
+    print(
+        json.dumps(
+            {
+                "verified": True,
+                "item_id": item_id,
+                "photo_saved": True,
+                "photo_updated_at": (
+                    photo.get("updated_at") if isinstance(photo, dict) else None
+                ),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
 
 
 def health() -> int:
@@ -91,6 +137,8 @@ def main() -> int:
         required=True,
         choices=["image/jpeg", "image/png", "image/webp", "image/gif"],
     )
+    verify_photo_parser = subparsers.add_parser("verify-photo")
+    verify_photo_parser.add_argument("item_id", type=int)
     arguments = parser.parse_args()
 
     try:
@@ -99,15 +147,19 @@ def main() -> int:
         if arguments.command == "request":
             body = arguments.json.encode("utf-8") if arguments.json else None
             return send(arguments.method, arguments.path, body)
+        if arguments.command == "verify-photo":
+            return verify_photo(arguments.item_id)
         if not arguments.file.is_file():
             raise RuntimeError(f"图片不存在：{arguments.file}")
-        return send(
+        uploaded = send(
             "PUT",
             f"/api/v1/items/{arguments.item_id}/photo",
             arguments.file.read_bytes(),
             arguments.content_type,
+            print_body=False,
         )
-    except (RuntimeError, UnicodeError) as exc:
+        return uploaded or verify_photo(arguments.item_id)
+    except (RuntimeError, UnicodeError, json.JSONDecodeError) as exc:
         print(f"EasyStuffFind 客户端失败：{exc}", file=sys.stderr)
         return 1
 

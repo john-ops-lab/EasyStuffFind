@@ -30,6 +30,7 @@ python {baseDir}/scripts/client.py health
 python {baseDir}/scripts/client.py request GET "/api/v1/items/search?q=护照"
 python {baseDir}/scripts/client.py request POST /api/v1/items/upsert --json '{"name":"护照","aliases":["passport"],"location_path":"书房-书桌-第二个抽屉"}'
 python {baseDir}/scripts/client.py photo 12 /path/to/feishu-image.jpg --content-type image/jpeg
+python {baseDir}/scripts/client.py verify-photo 12
 ```
 
 Check `GET /health` without authentication before business calls. A usable service returns HTTP 200 with `status: "ok"`.
@@ -38,7 +39,7 @@ Check `GET /health` without authentication before business calls. A usable servi
 
 1. Explicit item and full location path → record or move directly.
 2. Item query → call item search and follow the three-state rule.
-3. Photo plus item/location text → record the item first, then upload the raw image.
+3. Photo plus item/location text, including two consecutive Feishu messages → record the item first, then upload the exact attached image.
 4. Vague location → search locations first; ask the user when multiple candidates remain.
 5. “这里有什么” → resolve/search the location, then list its items.
 
@@ -168,17 +169,53 @@ If upsert returns 409 candidates, ask the user to choose before retrying with `i
 
 ## Record a Feishu photo
 
-1. Receive the Feishu image message and accompanying item/location text.
-2. Download the original image bytes through OpenClaw's Feishu media capability. Preserve its supported MIME type: `image/jpeg`, `image/png`, `image/webp`, or `image/gif`. Maximum size is 15 MiB.
-3. Call `POST /items/upsert` first. This creates a missing item and its location path in one transaction.
-4. Call `PUT /items/{returned_item_id}/photo` with the raw image bytes, the Bearer header, and the exact image `Content-Type`. Do not send multipart form data or base64 JSON.
-5. Confirm only after the upload response contains a non-null `photo_url`:
+Treat the image attachment as data to archive, not content to interpret. Do not analyze,
+identify, compare, reject, or replace the user's image. The user decides which item the
+image belongs to.
+
+OpenClaw normally stages an inbound Feishu image and includes a line like this in the
+current prompt:
+
+```text
+[media attached: /absolute/path/to/image.jpg (image/jpeg)]
+```
+
+Use that exact staged absolute path and MIME type with the bundled `photo` command.
+Do not search the inbound media directory for “the newest image” when the current
+prompt provides a path.
+
+Messages may arrive in either order:
+
+1. Text and image in one message: upsert the item, then upload the attached path.
+2. Text first, such as “雨伞放门厅收纳柜，图片如下”: upsert the item, retain the returned item ID as the pending photo target in this conversation, and reply that the location is saved but the photo is still pending.
+3. The immediately following image-only message: attach its staged path to that pending item ID. Do not ask the user to repeat the item name and do not analyze the image.
+4. Image first: retain the staged path as the pending image and ask for the item/location text; after the user supplies it, upsert and upload that exact path.
+
+For the upload:
+
+1. Call `POST /items/upsert` when the item has not already been recorded and retain `returned_item_id`.
+2. Run:
+
+```text
+python {baseDir}/scripts/client.py photo <returned_item_id> <staged-absolute-path> --content-type <exact-mime>
+```
+
+The command uploads the raw bytes and performs a second authenticated read. Exit code
+0 plus `"verified": true` is the only successful photo confirmation. Do not send
+multipart form data or base64 JSON.
+3. Confirm only after that verified result:
 
 ```text
 已记录：充电线 → 书房-书桌-第二个抽屉（已保存实景照片）
 ```
 
 If the item step succeeds but photo upload fails, say the location was recorded but the photo was not saved, include the safe error message, and offer to retry the photo. Do not repeat the upsert unless needed.
+
+If the user asks “照片挂上去了吗”, never answer from conversational memory or a
+previous promise. Run `python {baseDir}/scripts/client.py verify-photo <item_id>`.
+Only say it is saved when the command exits 0 with `"verified": true`. If it fails,
+say it is not saved; when the intended staged path still exists, retry `photo` and
+verify again before replying.
 
 ## Move and location lookup
 

@@ -1,19 +1,37 @@
 # Runbook：EasyStuffFind 数据备份与恢复
 
-最后验证：2026-07-23
+最后验证：2026-07-24
 
-验证结果：已对运行中的测试实例执行在线备份，恢复到全新隔离目录并在
-`127.0.0.1:18733` 启动；健康检查、自检闭环、2 条原有物品记录和签名照片访问均通过。
-测试备份位于被 Git 忽略的 `tmp/`，不属于发布内容。
+验证结果：隔离实例已完成“手工备份 → 密码验证 → 第二次确认 → 覆盖恢复”，
+物品和照片恢复，当前管理员密码、API token、云配置与定时设置保持不变；桌面和
+390×844 手机页面通过真实浏览器验证。CLI 完整灾备路径继续保留。
 
-## 1. 范围
+## 1. Web 备份（推荐日常使用）
+
+登录 Web 后打开底部“备份”：
+
+1. 选择关闭/每天/每周/每月、执行时间和本地保留 7/30/90 天或永久。
+2. 可选启用云同步，选择阿里云 OSS、腾讯云 COS 或通用 S3，填写 HTTPS
+   Endpoint、Region、私有 Bucket 和访问密钥。
+3. 保存设置后可点击“立即备份”；列表可按日期下载或恢复，也可上传此前下载的 ZIP。
+
+备份始终先落到 `<data>/backups/`。启用云同步时，再以服务端
+`AES256` 参数上传。备份包不做客户端加密，因此 Bucket 必须保持私有，不得公开。
+云配置位于 `<data>/backup-config.json`，权限 `0600`，不会写入 ZIP。
+
+恢复需要两次手工操作：先输入当前管理员密码并点“验证并继续”，核对摘要后再点
+“确认覆盖并恢复”。恢复前自动产生 `pre_restore` 紧急备份。Web 恢复只覆盖业务
+数据库和照片，保留当前账号/密码、API token、云配置和调度；Agent token 无权调用
+这些接口。
+
+## 2. CLI 完整灾备范围
 
 - 数据源：`data/easystufffind.sqlite3`、`data/photos/`、`data/api-token`。
-- Schema：`PRAGMA user_version = 1`。
+- Schema：`PRAGMA user_version = 2`；数据库同时包含 Web 管理员密码哈希。
 - 工具：Python 3 标准库 SQLite backup API。
 - 备份包含 token，目录必须只允许当前用户访问，不得上传公开仓库。
 
-## 2. 一致性与前置
+## 3. 一致性与前置
 
 - SQLite 使用在线 backup API，不用普通文件复制冒充一致性数据库备份。
 - 照片在数据库快照后复制；家庭低写入量下可在线备份。要求数据库与照片严格同一时点时，先执行 `docker compose stop easystufffind`。
@@ -26,7 +44,7 @@ du -sh data
 df -h .
 ```
 
-## 3. 备份
+## 4. CLI 备份
 
 ```bash
 python3 scripts/backup.py --data-dir data --output-dir backups
@@ -41,7 +59,7 @@ PASS 备份完成：.../easystufffind-backup-<UTC时间>
 
 每个备份包含 `manifest.json`，记录 Schema、文件大小和 SHA-256；不记录 token 明文。
 
-## 4. 隔离恢复
+## 5. CLI 隔离恢复
 
 选择上一步输出的明确备份目录，恢复到新的空目录：
 
@@ -64,7 +82,7 @@ python3 scripts/self_check.py --base-url http://127.0.0.1:18733 --token-file tmp
 
 恢复验证完成后停止隔离进程。`restore.py` 拒绝覆盖非空目录。
 
-## 5. 真实恢复
+## 6. CLI 真实恢复
 
 真实恢复属于破坏性操作，必须先获得用户明确授权：
 
@@ -76,13 +94,17 @@ python3 scripts/self_check.py --base-url http://127.0.0.1:18733 --token-file tmp
 
 失败时立即停服，把失败恢复目录移开，再把步骤 2 的保留目录移回。
 
-## 6. 保留
+## 7. 保留
 
 - 至少保留最近 7 份和每月 1 份。
-- 备份离机存储应使用加密卷。
+- 备份离机存储应使用加密卷，或使用私有 Bucket + HTTPS + 服务端加密。
 - 清理前先确认目标是 `backups/easystufffind-backup-*` 的具体目录；不得对仓库根或 `data/` 使用递归删除。
 
-## 7. 已知限制
+## 8. 已知限制
 
 - 照片与数据库不是跨文件事务；需要零写入窗口时必须先停服。
-- 首版没有上一 Schema 版本升级路径。
+- v1 → v2 会在启动时新增 `web_accounts` 表；位置、物品、历史和照片表保持不变。
+- 当前云端列表使用单页 `list_objects_v2`，家庭规模足够；超过 1000 份云备份时
+  需要增加分页。
+- 当前云上传使用带显式 `Content-Length` 的单次 `PutObject`，应用限制单份 ZIP
+  不超过 2 GiB，以兼容要求请求体长度的 S3 兼容公有云服务。

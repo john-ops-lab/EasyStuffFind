@@ -1,10 +1,10 @@
 [project]
 name = "easystufffind"
-version = "0.1.0"
+version = "0.3.0"
 description = "家庭物品位置记录工具"
 requires-python = ">=3.12,<3.15"
 license = "MIT"
 
 [tool.easystufffind]
 api-version = "v1"
-schema-version = 1
+schema-version = 2

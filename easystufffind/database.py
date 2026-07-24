@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_V1 = """
 CREATE TABLE locations (
@@ -57,6 +57,20 @@ CREATE INDEX idx_history_item_time ON location_history(item_id, changed_at DESC)
 PRAGMA user_version = 1;
 """
 
+MIGRATION_V1_TO_V2 = """
+CREATE TABLE web_accounts (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    auth_version INTEGER NOT NULL DEFAULT 1,
+    password_changed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+PRAGMA user_version = 2;
+"""
+
 
 class Database:
     def __init__(self, path: Path) -> None:
@@ -71,7 +85,7 @@ class Database:
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             if version > SCHEMA_VERSION:
                 raise RuntimeError(
@@ -79,6 +93,9 @@ class Database:
                 )
             if version == 0:
                 connection.executescript(SCHEMA_V1)
+                version = 1
+            if version == 1:
+                connection.executescript(MIGRATION_V1_TO_V2)
             connection.execute("PRAGMA journal_mode = WAL")
 
     @contextmanager

@@ -4,6 +4,7 @@ import logging
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -11,17 +12,20 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
+from .backup_service import BackupService, MAX_BACKUP_BYTES
 from .config import Settings
 from .database import SCHEMA_VERSION, Database
 from .errors import DomainError, validation_error
 from .models import (
     ErrorResponse,
+    BackupConfigUpdate,
+    BackupCreate,
     ItemCreate,
     ItemMove,
     ItemUpdate,
@@ -29,9 +33,13 @@ from .models import (
     LocationCreate,
     LocationResolve,
     LocationUpdate,
+    RestoreAuthorize,
+    RestoreExecute,
+    WebLogin,
+    WebPasswordChange,
 )
 from .repository import Repository
-from .security import TokenManager
+from .security import WEB_SESSION_TTL_SECONDS, TokenManager, WebAuthManager
 
 logger = logging.getLogger("easystufffind")
 
@@ -41,6 +49,7 @@ SUPPORTED_PHOTO_TYPES = {
     "image/webp": "webp",
     "image/gif": "gif",
 }
+WEB_SESSION_COOKIE = "easystufffind_web_session"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -48,6 +57,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(settings.database_path)
     repository = Repository(database)
     token_manager = TokenManager(settings.token_path, settings.photo_url_ttl_seconds)
+    web_auth_manager = WebAuthManager(database, token_manager)
+    backup_service = BackupService(
+        settings.data_dir,
+        settings.backup_dir,
+        settings.backup_config_path,
+    )
+    scheduler_stop = threading.Event()
+    scheduler_thread: threading.Thread | None = None
     static_dir = Path(__file__).parent / "static"
 
     @asynccontextmanager
@@ -60,6 +77,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.photo_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         database.initialize()
         token_manager.ensure()
+        web_auth_manager.ensure_default_account()
+        backup_service.initialize()
+
+        def scheduler_loop() -> None:
+            while not scheduler_stop.wait(30):
+                try:
+                    backup_service.run_scheduled_if_due()
+                except Exception:
+                    logger.exception("event=scheduled_backup_failed")
+
+        scheduler_stop.clear()
+        scheduler_thread = threading.Thread(
+            target=scheduler_loop,
+            name="easystufffind-backup-scheduler",
+            daemon=True,
+        )
+        scheduler_thread.start()
         logger.info(
             "event=service_started version=%s data_dir=%s port=%s",
             __version__,
@@ -67,6 +101,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings.port,
         )
         yield
+        scheduler_stop.set()
+        scheduler_thread.join(timeout=5)
         logger.info("event=service_stopped")
 
     application = FastAPI(
@@ -87,6 +123,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.database = database
     application.state.repository = repository
     application.state.token_manager = token_manager
+    application.state.web_auth_manager = web_auth_manager
+    application.state.backup_service = backup_service
 
     @application.middleware("http")
     async def request_context(request: Request, call_next):
@@ -108,6 +146,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             raise
         response.headers["X-Request-ID"] = request_id
+        if request.url.path == "/":
+            response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
         logger.info(
             "event=request_complete request_id=%s method=%s path=%s status=%s duration_ms=%s",
             request_id,
@@ -120,7 +164,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.exception_handler(DomainError)
     async def handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
-        headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+        headers = (
+            {"WWW-Authenticate": "Bearer"}
+            if exc.status_code == 401 and exc.code == "unauthorized"
+            else None
+        )
         return JSONResponse(
             status_code=exc.status_code,
             headers=headers,
@@ -159,11 +207,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
-    def require_token(
+    def web_account(request: Request) -> dict[str, object] | None:
+        return web_auth_manager.account_from_session(
+            request.cookies.get(WEB_SESSION_COOKIE)
+        )
+
+    def require_web_account(request: Request) -> dict[str, object]:
+        account = web_account(request)
+        if account is None:
+            raise DomainError(401, "web_session_required", "请先登录 Web 管理端")
+        return account
+
+    def require_api_auth(
+        request: Request,
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> None:
-        if not token_manager.verify_bearer(authorization):
-            raise DomainError(401, "unauthorized", "缺少或无效的 API token")
+        if token_manager.verify_bearer(authorization) or web_account(request):
+            return
+        raise DomainError(401, "unauthorized", "缺少或无效的认证凭据")
+
+    def set_session_cookie(
+        request: Request,
+        response: Response,
+        session: str,
+    ) -> None:
+        response.set_cookie(
+            key=WEB_SESSION_COOKIE,
+            value=session,
+            max_age=WEB_SESSION_TTL_SECONDS,
+            httponly=True,
+            samesite="strict",
+            secure=request.url.scheme == "https",
+            path="/",
+        )
+
+    def public_web_user(account: dict[str, object]) -> dict[str, object]:
+        return {
+            "username": account["username"],
+            "password_changed": account["password_changed"],
+        }
 
     def signed_item(request: Request, item: dict[str, Any]) -> dict[str, Any]:
         if item["photo"]:
@@ -234,7 +316,211 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "private, max-age=300"},
         )
 
-    api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_token)])
+    web_auth_api = APIRouter(prefix="/api/v1/web-auth", tags=["web-auth"])
+
+    @web_auth_api.post("/login")
+    def web_login(
+        request: Request,
+        response: Response,
+        payload: WebLogin,
+    ) -> dict[str, Any]:
+        account = web_auth_manager.authenticate(payload.username, payload.password)
+        if account is None:
+            raise DomainError(401, "invalid_credentials", "账号或密码错误")
+        set_session_cookie(
+            request,
+            response,
+            web_auth_manager.create_session(account),
+        )
+        return {
+            "authenticated": True,
+            "expires_in_seconds": WEB_SESSION_TTL_SECONDS,
+            "user": public_web_user(account),
+        }
+
+    @web_auth_api.get("/me")
+    def web_me(
+        account: dict[str, object] = Depends(require_web_account),
+    ) -> dict[str, Any]:
+        return {"authenticated": True, "user": public_web_user(account)}
+
+    @web_auth_api.post("/logout")
+    def web_logout(response: Response) -> dict[str, bool]:
+        response.delete_cookie(
+            key=WEB_SESSION_COOKIE,
+            path="/",
+            httponly=True,
+            samesite="strict",
+        )
+        return {"authenticated": False}
+
+    @web_auth_api.post("/password")
+    def change_web_password(
+        request: Request,
+        response: Response,
+        payload: WebPasswordChange,
+        account: dict[str, object] = Depends(require_web_account),
+    ) -> dict[str, Any]:
+        updated = web_auth_manager.change_password(
+            str(account["username"]),
+            payload.current_password,
+            payload.new_password,
+        )
+        if updated is None:
+            raise DomainError(400, "current_password_invalid", "当前密码错误")
+        set_session_cookie(
+            request,
+            response,
+            web_auth_manager.create_session(updated),
+        )
+        return {"changed": True, "user": public_web_user(updated)}
+
+    backup_api = APIRouter(
+        prefix="/api/v1/backups",
+        tags=["backups"],
+        dependencies=[Depends(require_web_account)],
+    )
+
+    @backup_api.get("/config")
+    def get_backup_config() -> dict[str, Any]:
+        return {"config": backup_service.public_config(backup_service.load_config())}
+
+    @backup_api.put("/config")
+    def update_backup_config(payload: BackupConfigUpdate) -> dict[str, Any]:
+        values = payload.model_dump()
+        clear_secret = values.pop("clear_secret")
+        secret = values.pop("secret_access_key")
+        if not values["access_key_id"]:
+            values.pop("access_key_id")
+        if values["cloud_enabled"]:
+            required = ("endpoint_url", "region", "bucket")
+            if any(not str(values[key]).strip() for key in required):
+                raise validation_error("启用云备份时，地址、地域和 Bucket 必填")
+            if not values["endpoint_url"].startswith("https://"):
+                raise validation_error("对象存储地址必须使用 HTTPS")
+        if values["retention_days"] not in {0, 7, 30, 90}:
+            raise validation_error("本地保留天数仅支持 7、30、90 或永久")
+        if clear_secret:
+            values["secret_access_key"] = ""
+        elif secret:
+            values["secret_access_key"] = secret
+        saved = backup_service.save_config(values)
+        return {"saved": True, "config": backup_service.public_config(saved)}
+
+    @backup_api.post("/test-cloud")
+    def test_backup_cloud() -> dict[str, bool]:
+        try:
+            backup_service.test_cloud()
+        except Exception as exc:
+            logger.warning("event=cloud_backup_test_failed type=%s", type(exc).__name__)
+            raise DomainError(400, "cloud_connection_failed", "云对象存储连接失败，请检查配置") from exc
+        return {"connected": True}
+
+    @backup_api.get("")
+    def list_backups() -> dict[str, Any]:
+        backups = backup_service.list_local()
+        warning = None
+        if backup_service.load_config().get("cloud_enabled"):
+            try:
+                local_ids = {record["id"] for record in backups}
+                backups.extend(
+                    record
+                    for record in backup_service.list_cloud()
+                    if record["id"] not in local_ids
+                )
+                backups.sort(key=lambda record: record["created_at"], reverse=True)
+            except Exception:
+                warning = "云端备份列表暂时不可用"
+                logger.warning("event=cloud_backup_list_failed")
+        return {"count": len(backups), "backups": backups, "warning": warning}
+
+    @backup_api.post("", status_code=201)
+    def create_backup(payload: BackupCreate) -> dict[str, Any]:
+        try:
+            record = backup_service.create_backup(upload_cloud=payload.upload_cloud)
+        except Exception as exc:
+            logger.exception("event=manual_backup_failed")
+            raise DomainError(500, "backup_failed", "备份失败，请查看服务日志") from exc
+        return {"backup": record}
+
+    @backup_api.get("/{backup_id}/download")
+    def download_backup(backup_id: str) -> FileResponse:
+        try:
+            path = backup_service.ensure_archive(backup_id)
+        except FileNotFoundError as exc:
+            raise DomainError(404, "backup_not_found", "备份不存在") from exc
+        return FileResponse(
+            path,
+            media_type="application/zip",
+            filename=path.name,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @backup_api.post("/upload", status_code=201)
+    async def upload_backup(request: Request) -> dict[str, Any]:
+        content_length = request.headers.get("content-length")
+        try:
+            if content_length and int(content_length) > MAX_BACKUP_BYTES:
+                raise DomainError(413, "backup_too_large", "备份文件不能超过 2 GiB")
+        except ValueError as exc:
+            raise validation_error("Content-Length 无效") from exc
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=settings.backup_dir,
+            prefix=".backup-upload-",
+            suffix=".zip",
+        )
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(descriptor, 0o600)
+            total = 0
+            with os.fdopen(descriptor, "wb") as output:
+                async for chunk in request.stream():
+                    total += len(chunk)
+                    if total > MAX_BACKUP_BYTES:
+                        raise DomainError(413, "backup_too_large", "备份文件不能超过 2 GiB")
+                    output.write(chunk)
+            if total == 0:
+                raise validation_error("备份文件不能为空")
+            record = backup_service.import_archive_file(temporary)
+        except ValueError as exc:
+            raise DomainError(422, "backup_invalid", str(exc)) from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {"backup": record}
+
+    @backup_api.post("/restore/authorize")
+    def authorize_restore(
+        payload: RestoreAuthorize,
+        account: dict[str, object] = Depends(require_web_account),
+    ) -> dict[str, Any]:
+        username = str(account["username"])
+        if not web_auth_manager.verify_current_password(username, payload.password):
+            raise DomainError(400, "current_password_invalid", "当前密码错误")
+        try:
+            ticket, summary = backup_service.issue_restore_ticket(payload.backup_id, username)
+        except (FileNotFoundError, ValueError) as exc:
+            raise DomainError(422, "backup_invalid", str(exc)) from exc
+        return {"authorized": True, "ticket": ticket, "expires_in_seconds": 300, "summary": summary}
+
+    @backup_api.post("/restore/execute")
+    def execute_restore(
+        payload: RestoreExecute,
+        account: dict[str, object] = Depends(require_web_account),
+    ) -> dict[str, Any]:
+        try:
+            result = backup_service.restore_with_ticket(
+                payload.ticket,
+                str(account["username"]),
+                payload.confirmation,
+            )
+        except PermissionError as exc:
+            raise DomainError(409, "restore_confirmation_invalid", str(exc)) from exc
+        except Exception as exc:
+            logger.exception("event=restore_failed")
+            raise DomainError(500, "restore_failed", "恢复失败，原数据已保留，请查看服务日志") from exc
+        return result
+
+    api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_auth)])
 
     @api.get("/locations/tree", tags=["locations"])
     def location_tree() -> dict[str, Any]:
@@ -474,6 +760,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         history = repository.all_history(limit)
         return {"count": len(history), "history": history}
 
+    application.include_router(web_auth_api)
+    application.include_router(backup_api)
     application.include_router(api)
     application.mount("/static", StaticFiles(directory=static_dir), name="static")
 

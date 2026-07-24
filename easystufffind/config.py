@@ -26,6 +26,14 @@ class Settings:
     def token_path(self) -> Path:
         return self.data_dir / "api-token"
 
+    @property
+    def backup_dir(self) -> Path:
+        return self.data_dir / "backups"
+
+    @property
+    def backup_config_path(self) -> Path:
+        return self.data_dir / "backup-config.json"
+
     @classmethod
     def from_env(cls) -> "Settings":
         data_dir = Path(os.getenv("EASYSTUFFFIND_DATA_DIR", "data")).expanduser().resolve()

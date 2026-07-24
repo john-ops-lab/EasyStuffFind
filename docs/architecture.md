@@ -1,6 +1,6 @@
 # EasyStuffFind 系统架构
 
-最后更新：2026-07-23
+最后更新：2026-07-24
 
 ## 1. 系统边界
 
@@ -10,12 +10,13 @@
 - 本地照片归档、当前照片替换与签名访问。
 - 供 OpenClaw 使用的版本化 REST API。
 - 供家庭成员使用的中文 Web 管理界面。
-- 单 token 自举、认证、健康检查、自检、备份和恢复工具。
+- Agent token 自举、Web 单账号会话、健康检查、自检、定时备份、公有云对象存储
+  私有 Bucket 同步和双确认恢复。
 
 ### 系统不负责
 
 - 飞书消息接收、自然语言解析、图片下载和对话式追问。
-- 用户体系、公网防护、对象存储、统计分析和多位置物品建模。
+- 用户体系、公网防护、统计分析和多位置物品建模。
 
 ## 2. 主要组件
 
@@ -25,8 +26,10 @@
 | 领域服务 | 位置解析、upsert、查询评分、移动和照片流程 | 已校验命令 | 领域对象或明确冲突 |
 | SQLite 存储 | 事务、Schema、CRUD、历史 | 领域操作 | 持久化记录 |
 | 照片存储 | 原子写入、替换、删除 | 图片字节 | 数据目录中的文件 |
-| Web 管理端 | 中文位置/物品/历史管理 | v1 API | 响应式 UI |
+| Web 管理端 | 中文位置/物品/脑图/历史管理 | v1 API | 响应式 UI |
 | 运维脚本 | 自检、契约导出、备份与隔离恢复 | 服务或数据目录 | 可验证结果 |
+| 备份服务 | SQLite 在线快照、ZIP 清单校验、调度、保留与安全恢复 | 数据目录/Web 命令 | 本地或云端备份 |
+| S3 兼容适配器 | 阿里云 OSS、腾讯云 COS、通用 S3 私有桶 | HTTPS + 本地凭据文件 | 服务端加密对象 |
 
 ## 3. 关键数据流
 
@@ -34,7 +37,7 @@
 flowchart LR
     F["飞书用户"] --> O["OpenClaw"]
     O -->|Bearer token + JSON/图片| A["/api/v1 REST API"]
-    W["手机/桌面浏览器"] -->|Bearer token| A
+    W["手机/桌面浏览器"] -->|30 天 HttpOnly 会话| A
     A --> S["领域服务"]
     S --> D[("SQLite")]
     S --> P["照片目录"]
@@ -47,6 +50,7 @@ flowchart LR
 - `locations`：自关联树；同一父节点下名称唯一。
 - `items`：允许重名；别名以 JSON 数组存储；只保存一个 `location_id` 和一张当前照片元数据。
 - `location_history`：物品移动时写入；同时保存旧/新位置 ID 与路径快照。
+- `web_accounts`：固定单管理员账号的 scrypt 密码哈希、认证版本和改密时间。
 - `PRAGMA user_version`：Schema 版本权威标记；启动时只执行向前迁移。
 
 SQLite 使用 WAL、外键、busy timeout；每次业务写入在显式事务中完成。家庭量级查询允许在内存中对千级物品做 Unicode 归一化和包含匹配，避免引入 FTS/ORM 依赖。
@@ -54,7 +58,10 @@ SQLite 使用 WAL、外键、busy timeout；每次业务写入在显式事务中
 ## 5. 认证与照片 URL
 
 - 首次启动以原子独占创建方式生成 256 位以上随机 token，写入 `<data>/api-token`，模式 `0600`。
-- API 使用 `Authorization: Bearer`，以恒定时间比较 token。
+- OpenClaw/Agent 使用 `Authorization: Bearer`，以恒定时间比较 token。
+- Web 默认账号/密码为 `admin/admin`；密码以 scrypt 哈希存储，浏览器使用由本地 token
+  派生 HMAC 签名的 30 天 HttpOnly、SameSite=Strict Cookie。修改密码会递增认证版本，
+  使旧会话立即失效。
 - 日志只记录 token 文件路径与完整 SHA-256 指纹。
 - 照片 URL 参数为 `expires` 和 `signature`；签名是以 token 为 HMAC 密钥对照片 ID 与过期时间计算的 SHA-256，不包含 token。
 - 过期时间最多为签发后一小时；删除或替换照片后旧 URL 因记录/文件变化失效。
@@ -73,8 +80,9 @@ SQLite 使用 WAL、外键、busy timeout；每次业务写入在显式事务中
 |---|---|---:|---|
 | FastAPI | API、验证、OpenAPI、静态路由 | 0.139.2 | 官方维护，Python 3.12 兼容；回滚锁文件与应用提交 |
 | Uvicorn | 单进程 ASGI 服务 | 0.51.0 | 官方 ASGI 服务器；不使用 `standard` extra 以减少依赖 |
+| boto3 | S3 兼容云对象存储 | 1.43.55 | 单一接口覆盖 OSS/COS/S3；固定完整传递依赖，删除云同步即可回滚 |
 
-未采用 SQLAlchemy/Alembic：本期 Schema 小、单 SQLite 文件、迁移线性，标准库事务和 `user_version` 足够。未采用 React/Vite：用户明确要求前端从简和依赖少，原生 Web 可以完成当前四条管理工作流，避免 Node 构建链。
+未采用 SQLAlchemy/Alembic：本期 Schema 小、单 SQLite 文件、迁移线性，标准库事务和 `user_version` 足够。未采用 React/Vite：用户明确要求前端从简和依赖少，原生 Web 可以完成当前管理工作流，避免 Node 构建链。
 
 ## 8. 目录职责
 
@@ -98,6 +106,8 @@ agent workspace；仅当该 agent 存在显式 Skill allowlist 时追加
 - 可用性：单容器、restart policy、健康检查、无外部服务依赖。
 - 一致性：SQLite 事务；照片临时文件 + 原子替换；失败不覆盖旧照片。
 - 性能：千级物品/万级文件；无高并发目标。
-- 安全：局域网边界 + token；无公网安全承诺；签名照片 URL 可在有效期内转发。
-- 可恢复：数据库使用 SQLite backup API；照片与清单一起备份；真实恢复要求停服。
+- 安全：局域网边界 + Agent token + Web 签名会话；无公网安全承诺；签名照片 URL 可在有效期内转发。
+- 可恢复：数据库使用 SQLite backup API；照片与 SHA-256 清单一起写入 ZIP。Web
+  恢复持有进程内互斥锁，保留当前身份配置，并在覆盖前生成紧急备份；完整灾备
+  仍可按 CLI 停服恢复。
 - 已知风险：开发机当前没有 Docker，因此容器实跑需在具备 Docker 的环境补验。

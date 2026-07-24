@@ -25,7 +25,8 @@
 | 需求与关键决策固化 | `docs/product/PRD.md`、ADR-001 | 用户确认“全部按推荐方案” |
 | 实施前交付盘点 | 交付检查器 | 退出码 1；2 PASS、1 WARN、8 FAIL |
 | API、SQLite、照片、认证和历史 | `easystufffind/`、`contracts/openapi.json` | 7 个测试通过；自检闭环通过 |
-| 中文移动优先 Web | `easystufffind/static/` | 桌面 1536×1024 与手机 390×844 真实浏览器验证 |
+| 中文移动优先 Web | `easystufffind/static/` | 桌面与手机真实浏览器验证；位置树支持按任意层级独立折叠和展开 |
+| Web 账号与物品脑图 | `security.py`、Schema v2、`easystufffind/static/` | 30 天登录、改密失效旧会话、默认两级脑图和物品详情弹窗已通过桌面/手机验证 |
 | 部署与 Agent 对接 | Docker、INSTALL、OpenClaw Skill、脚本 | 当前 agent 自动绑定隔离测试通过；真实 OpenClaw/飞书待验 |
 | 备份与隔离恢复 | 备份恢复脚本与 Runbook | 恢复实例健康、自检、原数据和照片验证通过 |
 | 视觉概念 | 生成的 EasyStuffFind 桌面/手机设计图 | 已与真实界面逐项对照，无阻塞偏差 |
@@ -48,7 +49,7 @@
 | 实施前 `check_delivery_baseline.py` | 2026-07-23 | 1；8 个失败 | 当前任务工具记录 |
 | Docker CLI 检测 | 2026-07-23 | 未安装 | 当前任务工具记录 |
 | 端口监听检查 | 2026-07-23 | 8733 未占用 | 当前任务工具记录 |
-| 单元、配置脚本与 live API 测试 | 2026-07-24 | 0；15 个测试通过 | `tests/` |
+| 单元、配置脚本与 live API 测试 | 2026-07-24 | 0；18 个测试通过 | `tests/` |
 | OpenAPI 导出与一致性检查 | 2026-07-23 | 0；16 个路径一致 | `contracts/openapi.json` |
 | OpenClaw Skill 项目校验 | 2026-07-24 | 0；PASS | `skills/openclaw/` |
 | Skill Creator `quick_validate.py` | 2026-07-24 | 1；本机校验器缺少 PyYAML，未改应用依赖 | 当前任务工具记录 |
@@ -56,6 +57,14 @@
 | 本机原生常驻启动 | 2026-07-24 | launchd `running`；本机与局域网健康检查、自检闭环通过 | `docs/operations.md` |
 | 备份与隔离恢复 | 2026-07-23 | PASS；健康、自检、原数据与照片均通过 | `docs/runbooks/backup-and-restore.md` |
 | 桌面与手机浏览器验收 | 2026-07-23 | PASS；控制台 0 错误、390px 无横向溢出 | `docs/screenshots/` |
+| 位置树逐层折叠验收 | 2026-07-24 | PASS；桌面 1280×720、手机 390×844，父级隐藏子级、子级独立折叠、刷新保留状态、选择位置和无横向溢出均通过 | 当前任务工具记录 |
+| Web 账号、脑图与缓存验收 | 2026-07-24 | PASS；错误/正确登录、30 天 Cookie、改密、退出、旧密码失效、两级脑图、逐级展开、详情弹窗、静态资源重新校验均通过 | `docs/tasks/T-002-web-account-and-mindmap.md` |
+| 物品照片查看与缩放验收 | 2026-07-24 | PASS；桌面列表、脑图物品详情和手机 390×844 默认完整显示，支持 50%–300% 缩放与一键恢复适应窗口，手机无横向溢出，控制台 0 错误 | 当前任务工具记录 |
+| OpenClaw 照片错误确认修复 | 2026-07-24 | PASS；缺失照片已补挂并经 API/Web 验证，客户端新增二次确认，目标 agent Skill 已更新；下一次真实飞书分步发图待复验 | `docs/incidents/I-001-openclaw-photo-false-confirmation.md` |
+| 定时与云备份、Web 双确认恢复 | 2026-07-24 | PASS；25 个测试，隔离恢复保留账号/token/云配置，桌面与 390×844 手机真实浏览器、控制台 0 错误 | `docs/runbooks/backup-and-restore.md` |
+| S3 兼容云上传 MissingContentLength | 2026-07-24 | PASS；改用显式 Content-Length 单次 PUT，真实上传 14,728,064 字节后云端回读、清单校验和 AES256 元数据通过 | `docs/incidents/I-002-s3-multipart-missing-content-length.md` |
+| 本机 v0.2.0 升级 | 2026-07-24 | PASS；升级前一致性备份，launchd running，健康 version 0.2.0 / schema 2，Agent 自检和 Web 登录通过 | 当前任务工具记录 |
+| 本机 v0.3.0 升级 | 2026-07-24 | PASS；升级前一致性备份，launchd running，健康 version 0.3.0 / schema 2，自检闭环通过，备份配置 0600、目录 0700 | 当前任务工具记录 |
 | 候选公开文件 Secret 扫描 | 2026-07-24 | 53 个文件，0 命中 | 当前任务工具记录 |
 | GitHub 公开发布 | 2026-07-24 | `main` 已推送；仓库为 PUBLIC，默认分支和 README 正常 | `https://github.com/john-ops-lab/EasyStuffFind` |
 | GitHub Actions | 2026-07-24 | run `30076503882` 通过；Python 3.12 全部步骤成功 | GitHub Actions |

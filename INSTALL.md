@@ -122,6 +122,7 @@ python3 scripts/configure_openclaw.py --base-url http://127.0.0.1:8733 --token-f
 EasyStuffFind 已完成安装和对接。
 - 服务地址：http://127.0.0.1:8733
 - Web 管理端：http://127.0.0.1:8733
+- Web 初始账号：`admin`；初始密码：`admin`（首次登录后在账户设置中修改）
 - 健康检查：http://127.0.0.1:8733/health
 - token 位置：<仓库绝对路径>/data/api-token（未显示内容）
 - OpenClaw Skill：easystufffind
