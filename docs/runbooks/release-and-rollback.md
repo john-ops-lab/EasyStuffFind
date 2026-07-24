@@ -1,6 +1,6 @@
 # Runbook：EasyStuffFind 发布与回滚
 
-当前候选版本：`0.3.0`
+当前正式版本：`0.3.0`
 
 目标环境：GitHub 开源仓库、Mac mini Docker Compose
 

@@ -4,7 +4,7 @@
 
 ## 当前阶段与目标
 
-- 阶段：实现完成，交付验证未完成
+- 阶段：v0.3.0 已公开发布，目标环境交付验证未完成
 - 当前目标：先以本机 launchd 常驻运行；后续迁移 Docker，并在全新 OpenClaw 和飞书环境补齐真实交付验收。
 
 ## 本阶段路由与门禁
@@ -63,11 +63,14 @@
 | OpenClaw 照片错误确认修复 | 2026-07-24 | PASS；缺失照片已补挂并经 API/Web 验证，客户端新增二次确认，目标 agent Skill 已更新；下一次真实飞书分步发图待复验 | `docs/incidents/I-001-openclaw-photo-false-confirmation.md` |
 | 定时与云备份、Web 双确认恢复 | 2026-07-24 | PASS；25 个测试，隔离恢复保留账号/token/云配置，桌面与 390×844 手机真实浏览器、控制台 0 错误 | `docs/runbooks/backup-and-restore.md` |
 | S3 兼容云上传 MissingContentLength | 2026-07-24 | PASS；改用显式 Content-Length 单次 PUT，真实上传 14,728,064 字节后云端回读、清单校验和 AES256 元数据通过 | `docs/incidents/I-002-s3-multipart-missing-content-length.md` |
+| GitHub v0.3.0 Release | 2026-07-24 | PASS；main、v0.3.0 Tag、正式 Release、README 渲染和 CI run 30105357284 均已远端验证 | `https://github.com/john-ops-lab/EasyStuffFind/releases/tag/v0.3.0` |
 | 本机 v0.2.0 升级 | 2026-07-24 | PASS；升级前一致性备份，launchd running，健康 version 0.2.0 / schema 2，Agent 自检和 Web 登录通过 | 当前任务工具记录 |
 | 本机 v0.3.0 升级 | 2026-07-24 | PASS；升级前一致性备份，launchd running，健康 version 0.3.0 / schema 2，自检闭环通过，备份配置 0600、目录 0700 | 当前任务工具记录 |
 | 候选公开文件 Secret 扫描 | 2026-07-24 | 53 个文件，0 命中 | 当前任务工具记录 |
 | GitHub 公开发布 | 2026-07-24 | `main` 已推送；仓库为 PUBLIC，默认分支和 README 正常 | `https://github.com/john-ops-lab/EasyStuffFind` |
 | GitHub Actions | 2026-07-24 | run `30076503882` 通过；Python 3.12 全部步骤成功 | GitHub Actions |
+| v0.3.0 GitHub Actions | 2026-07-24 | run `30105357284` 通过；锁定依赖、编译、25 项测试、OpenAPI、Skill 和依赖检查全部成功 | GitHub Actions |
+| v0.3.0 GitHub Release | 2026-07-24 | PUBLIC；默认分支 main，Tag 和正式 Release 可见，README 远端渲染通过，无附加二进制制品 | `https://github.com/john-ops-lab/EasyStuffFind/releases/tag/v0.3.0` |
 | 交付前检查器 | 2026-07-24 | 0；12 PASS、0 WARN、0 FAIL | 当前任务工具记录 |
 
 ## EasyUseAIDE 交付门禁
