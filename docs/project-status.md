@@ -12,11 +12,11 @@
 | 触发条件 | 实际加载的 Skill | 状态或不适用依据 |
 |---|---|---|
 | 项目上下文 | `easyuseaide-project-bootstrap` | 已加载并建立 PRD、架构、ADR、任务卡和状态 |
-| 依赖决策 | `easyuseaide-dependency-research` | 已加载；采用 FastAPI/Uvicorn，其他核心能力用标准库 |
+| 依赖决策 | `easyuseaide-dependency-research` | 已加载；采用 FastAPI/Uvicorn，并将 GitHub Actions 升级到 Node 24 版本 |
 | 复杂故障 | 不适用 | 当前不是复发、并发、性能或资源泄漏故障 |
 | 交付准备 | `easyuseaide-project-delivery-readiness` | 已加载；实施前检查器已运行 |
-| 公开发布 | 不适用 | 未进入远端创建、推送或 Release 阶段 |
-| 高风险 Git | 不适用 | 没有历史重写、强推、硬重置或清理 |
+| 公开发布 | `easyuseaide-public-repository-release` | 已加载；公开文件、历史、许可证、远端和 CI 已检查 |
+| 高风险 Git | `easyuseaide-high-risk-git-operation` | 已加载；仅修正尚未推送的首个提交作者，本地恢复包已建立，未强推 |
 
 ## 已完成
 
@@ -30,16 +30,16 @@
 | 备份与隔离恢复 | 备份恢复脚本与 Runbook | 恢复实例健康、自检、原数据和照片验证通过 |
 | 视觉概念 | 生成的 EasyStuffFind 桌面/手机设计图 | 已与真实界面逐项对照，无阻塞偏差 |
 | 交付门禁 | 检查器与人工复核 | 12 PASS、0 WARN、0 FAIL；Secret 扫描 0 命中 |
+| GitHub 公开仓库 | `john-ops-lab/EasyStuffFind` | `main` 已推送；公开可见性、README、远端树和 GitHub Actions 已验证 |
 
 ## 正在进行
 
-- 在目标环境补做 Docker Compose、全新 OpenClaw、飞书和远端 CI 验证。
+- 在目标环境补做 Docker Compose、全新 OpenClaw 和飞书验证。
 
 ## 下一步
 
 1. 在安装 Docker Desktop 的干净 macOS 上按 `INSTALL.md` 原样执行。
 2. 用全新 OpenClaw 安装仓库 Skill，并通过飞书完成一次拍照记录和一次中文查询。
-3. 用户明确授权公开发布后，再运行公开仓库发布 Skill、创建远端并确认 GitHub CI。
 
 ## 已执行验证
 
@@ -57,6 +57,8 @@
 | 备份与隔离恢复 | 2026-07-23 | PASS；健康、自检、原数据与照片均通过 | `docs/runbooks/backup-and-restore.md` |
 | 桌面与手机浏览器验收 | 2026-07-23 | PASS；控制台 0 错误、390px 无横向溢出 | `docs/screenshots/` |
 | 候选公开文件 Secret 扫描 | 2026-07-24 | 53 个文件，0 命中 | 当前任务工具记录 |
+| GitHub 公开发布 | 2026-07-24 | `main` 已推送；仓库为 PUBLIC，默认分支和 README 正常 | `https://github.com/john-ops-lab/EasyStuffFind` |
+| GitHub Actions | 2026-07-24 | run `30076503882` 通过；Python 3.12 全部步骤成功 | GitHub Actions |
 | 交付前检查器 | 2026-07-24 | 0；12 PASS、0 WARN、0 FAIL | 当前任务工具记录 |
 
 ## EasyUseAIDE 交付门禁
@@ -75,7 +77,6 @@
 
 - Docker 镜像构建和 Compose 启动（当前机器无 Docker）。
 - 干净 macOS + 全新 OpenClaw + 飞书真实消息端到端。
-- GitHub 远端 CI 和公开发布。
 
 ## 阻塞
 
@@ -84,7 +85,7 @@
 
 ## 已知风险
 
-- 当前开发机为 Python 3.14，目标容器为 Python 3.12，需通过 CI 或 Docker 补足目标运行时验证。
+- 当前开发机为 Python 3.14，GitHub CI 已覆盖 Python 3.12；Docker 容器路径仍待实跑。
 - 当前本机 launchd 配置引用项目目录内的 `.venv`；移动项目或重建虚拟环境后需要同步重载启动配置。
 - 尚未让真实 OpenClaw agent 从飞书对话执行安装；隔离假 CLI 测试不能替代该验收。
 

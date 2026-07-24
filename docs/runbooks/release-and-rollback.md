@@ -4,7 +4,7 @@
 
 目标环境：GitHub 开源仓库、Mac mini Docker Compose
 
-最后验证：待首次发布
+最后验证：2026-07-24，GitHub 源码仓库首次公开发布
 
 ## 1. 发布边界
 
@@ -56,8 +56,9 @@
 
 首版 Schema 只有 v1；当前迁移只初始化空库。未来任何 Schema 变更都必须补充前一版本升级与回滚边界。
 
-## 7. 尚未演练
+## 7. 当前验证边界
 
-- GitHub 公开发布。
+- GitHub 公开仓库、`main` 推送、远端文件树和 Actions 已验证。
+- 尚未创建版本 Tag 或 GitHub Release。
 - Docker 候选镜像回滚。
 - 飞书真实端到端。

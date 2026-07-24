@@ -55,7 +55,8 @@
 - 实现完成，交付验证未完成。
 - 本机 API、Web、备份恢复和交付基线已通过。
 - OpenClaw 当前 agent 自动识别、最小授权和目标可见性已通过隔离测试。
-- Docker Compose、干净 macOS + OpenClaw + 飞书、GitHub 远端 CI 待目标环境验证。
+- GitHub 公开仓库和 Python 3.12 远端 CI 已通过。
+- Docker Compose、干净 macOS + OpenClaw + 飞书仍待目标环境验证。
 
 ## 风险等级
 
