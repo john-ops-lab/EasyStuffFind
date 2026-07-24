@@ -77,7 +77,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         responses={
             401: {"model": ErrorResponse},
             409: {"model": ErrorResponse},
-            422: {"model": ErrorResponse},
+            422: {
+                "model": ErrorResponse,
+                "description": "Unprocessable Content",
+            },
         },
     )
     application.state.settings = settings

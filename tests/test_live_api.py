@@ -110,6 +110,16 @@ class LiveApiTestCase(unittest.TestCase):
                 return exc.code, json.loads(exc.read().decode("utf-8"))
 
     def test_complete_api_flow(self) -> None:
+        with urlopen(f"{self.base_url}/openapi.json", timeout=5) as response:
+            openapi = json.loads(response.read().decode("utf-8"))
+        validation_descriptions = {
+            operation["responses"]["422"]["description"]
+            for path in openapi["paths"].values()
+            for operation in path.values()
+            if "422" in operation.get("responses", {})
+        }
+        self.assertEqual(validation_descriptions, {"Unprocessable Content"})
+
         status, unauthorized = self.request("GET", "/api/v1/items", authenticated=False)
         self.assertEqual(status, 401)
         self.assertEqual(unauthorized["error"]["code"], "unauthorized")
