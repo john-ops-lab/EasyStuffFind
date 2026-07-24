@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import sys
 from pathlib import Path
@@ -36,8 +37,17 @@ def main() -> int:
         if not arguments.output.is_file():
             print(f"FAIL 契约文件不存在：{arguments.output}", file=sys.stderr)
             return 1
-        if arguments.output.read_text(encoding="utf-8") != expected:
+        actual = arguments.output.read_text(encoding="utf-8")
+        if actual != expected:
             print(f"FAIL 契约已漂移：{arguments.output}", file=sys.stderr)
+            sys.stderr.writelines(
+                difflib.unified_diff(
+                    actual.splitlines(keepends=True),
+                    expected.splitlines(keepends=True),
+                    fromfile=str(arguments.output),
+                    tofile="当前代码生成结果",
+                )
+            )
             return 1
         print(f"PASS 契约一致：{arguments.output}")
         return 0
