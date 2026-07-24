@@ -1,0 +1,4 @@
+interface:
+  display_name: "EasyStuffFind"
+  short_description: "通过 OpenClaw 安全记录、查询、拍照和移动家庭物品位置"
+  default_prompt: "Use $easystufffind to record where a household item is stored, or find it later."

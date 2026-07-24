@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff">
+    <title>EasyStuffFind</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <button class="icon-button mobile-only" id="tree-toggle" aria-label="打开位置树">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <a class="brand" href="/" aria-label="EasyStuffFind 首页">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>EasyStuffFind</span>
+        </a>
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg>
+          <input id="global-search" type="search" placeholder="搜索物品或别名" autocomplete="off">
+          <kbd>⌘ K</kbd>
+        </label>
+        <div class="top-actions">
+          <span class="health-state" id="health-state">
+            <span class="health-dot"></span>
+            <span class="desktop-only">本地服务</span>
+          </span>
+          <button class="icon-button" id="token-settings" aria-label="更换 API token">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.36a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.64 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.64a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="location-panel" id="location-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>位置</h2>
+              <p>按收纳层级浏览</p>
+            </div>
+            <button class="icon-button" id="add-location" aria-label="新建位置">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+            </button>
+          </div>
+          <nav class="location-tree" id="location-tree" aria-label="位置树"></nav>
+          <div class="tree-footer">
+            <span id="location-summary">0 个位置</span>
+            <button class="text-button" id="close-tree">收起</button>
+          </div>
+        </aside>
+
+        <main class="content">
+          <section id="items-view">
+            <div class="content-heading">
+              <div class="title-group">
+                <button class="back-button mobile-only" id="mobile-back" aria-label="返回位置树">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <div>
+                  <h1 id="view-title">全屋物品</h1>
+                  <p id="view-path">所有位置</p>
+                </div>
+              </div>
+              <div class="heading-actions">
+                <button class="secondary-button location-action" id="edit-location">编辑位置</button>
+                <button class="primary-button" id="add-item">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  记录物品
+                </button>
+              </div>
+            </div>
+
+            <div class="selection-bar" id="selection-bar" hidden>
+              <span>已选择 <strong id="selection-count">0</strong> 件物品</span>
+              <div>
+                <button class="text-button" id="clear-selection">取消选择</button>
+                <button class="secondary-button" id="bulk-move">批量移动</button>
+              </div>
+            </div>
+
+            <div class="item-table">
+              <div class="table-head">
+                <span class="check-column"></span>
+                <span>物品名称</span>
+                <span>位置</span>
+                <span>更新时间</span>
+                <span>照片</span>
+                <span class="align-right">操作</span>
+              </div>
+              <div id="item-list" class="item-list" aria-live="polite"></div>
+            </div>
+          </section>
+
+          <section id="history-view" hidden>
+            <div class="content-heading">
+              <div>
+                <h1>变更历史</h1>
+                <p>最近的物品位置变动</p>
+              </div>
+            </div>
+            <div id="history-list" class="history-list"></div>
+          </section>
+        </main>
+      </div>
+
+      <nav class="bottom-nav" aria-label="主要导航">
+        <button class="nav-item active" data-tab="locations">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <span>位置</span>
+        </button>
+        <button class="nav-item" data-tab="items">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="m4 7 8 4 8-4v10l-8 4-8-4V7Z"/></svg>
+          <span>物品</span>
+        </button>
+        <button class="nav-item" data-tab="history">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span>历史</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+    <aside class="edit-drawer" id="edit-drawer" aria-labelledby="drawer-title" aria-hidden="true">
+      <form id="item-form">
+        <div class="drawer-heading">
+          <div>
+            <h2 id="drawer-title">记录物品</h2>
+            <p id="drawer-subtitle">保存后可立即通过 API 查询</p>
+          </div>
+          <button class="icon-button" type="button" id="close-drawer" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <input id="item-id" type="hidden">
+        <div class="form-body">
+          <label class="field">
+            <span>物品名称</span>
+            <input id="item-name" required maxlength="200" placeholder="例如：护照">
+          </label>
+          <label class="field">
+            <span>别名 <small>用逗号分隔</small></span>
+            <input id="item-aliases" maxlength="1000" placeholder="例如：passport, 证件">
+          </label>
+          <label class="field">
+            <span>位置</span>
+            <select id="item-location" required></select>
+          </label>
+          <label class="field">
+            <span>备注 <small>可选</small></span>
+            <textarea id="item-note" maxlength="2000" rows="4" placeholder="补充查找时有用的信息"></textarea>
+          </label>
+          <label class="field photo-field">
+            <span>实景照片 <small>可选，最多 15 MiB</small></span>
+            <input id="item-photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+            <span class="file-hint" id="photo-hint">JPEG、PNG、WebP 或 GIF</span>
+          </label>
+        </div>
+        <div class="drawer-actions">
+          <button class="secondary-button" type="button" id="cancel-drawer">取消</button>
+          <button class="primary-button" type="submit" id="save-item">保存</button>
+        </div>
+      </form>
+    </aside>
+
+    <dialog id="auth-dialog" class="modal auth-modal">
+      <form id="auth-form" method="dialog">
+        <div class="auth-mark">E</div>
+        <h2>连接 EasyStuffFind</h2>
+        <p>请输入数据目录 <code>api-token</code> 文件中的 token。token 仅保存在当前页面内存中，刷新后需要重新输入。</p>
+        <label class="field">
+          <span>API token</span>
+          <input id="token-input" type="password" autocomplete="off" required>
+        </label>
+        <p class="form-error" id="auth-error" hidden></p>
+        <button class="primary-button wide-button" type="submit">开始使用</button>
+      </form>
+    </dialog>
+
+    <dialog id="location-dialog" class="modal">
+      <form id="location-form" method="dialog">
+        <div class="modal-heading">
+          <div>
+            <h2 id="location-dialog-title">新建位置</h2>
+            <p id="location-dialog-help">在当前位置下添加一层收纳位置</p>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog="location-dialog" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <input id="location-id" type="hidden">
+        <label class="field">
+          <span>位置名称</span>
+          <input id="location-name" required maxlength="100" placeholder="例如：第三个抽屉">
+        </label>
+        <label class="field" id="location-parent-field">
+          <span>上级位置</span>
+          <select id="location-parent"></select>
+        </label>
+        <p class="form-error" id="location-error" hidden></p>
+        <div class="modal-actions">
+          <button class="danger-text-button" type="button" id="delete-location" hidden>删除位置</button>
+          <span class="spacer"></span>
+          <button class="secondary-button" type="button" data-close-dialog="location-dialog">取消</button>
+          <button class="primary-button" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="move-dialog" class="modal">
+      <form id="move-form" method="dialog">
+        <div class="modal-heading">
+          <div>
+            <h2 id="move-title">移动物品</h2>
+            <p id="move-help">本次移动会自动写入历史</p>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog="move-dialog" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <label class="field">
+          <span>新位置</span>
+          <select id="move-location" required></select>
+        </label>
+        <p class="form-error" id="move-error" hidden></p>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" data-close-dialog="move-dialog">取消</button>
+          <button class="primary-button" type="submit">确认移动</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

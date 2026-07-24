@@ -1,0 +1,15 @@
+services:
+  easystufffind:
+    build:
+      context: .
+    ports:
+      - "8733:8733"
+    user: "${EASYSTUFFFIND_UID:-10001}:${EASYSTUFFFIND_GID:-10001}"
+    volumes:
+      - ./data:/data
+    environment:
+      EASYSTUFFFIND_DATA_DIR: /data
+      EASYSTUFFFIND_HOST: 0.0.0.0
+      EASYSTUFFFIND_PORT: "8733"
+      EASYSTUFFFIND_LOG_LEVEL: INFO
+    restart: unless-stopped
